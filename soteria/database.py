@@ -103,6 +103,13 @@ def init(db_path: Path):
     except Exception as e:
         log.warning("Authorization schema install failed: %s", e)
 
+    # Install customer schema
+    try:
+        from .modules.customers.setup import CUSTOMER_SCHEMA
+        con.executescript(CUSTOMER_SCHEMA)
+    except Exception as e:
+        log.warning("Customer schema install failed: %s", e)
+
     con.close()
 
 

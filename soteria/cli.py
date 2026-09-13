@@ -251,6 +251,116 @@ def hunt_revoke(hunt_id):
     else:
         click.echo(f"[!] Failed to revoke: {hunt_id}")
 
+@main.group()
+def customer():
+    """Manage customer accounts."""
+    pass
+
+
+@customer.command("create")
+@click.option("--name", "-n", required=True, help="Customer name")
+@click.option("--email", "-e", default="", help="Contact email")
+@click.option("--contact", "-c", default="", help="Contact name")
+@click.option("--plan", "-P", default="standard", help="Plan: pilot/starter/standard/premium/enterprise")
+@click.option("--notes", default="", help="Notes")
+def customer_create(name, email, contact, plan, notes):
+    """Create a new customer."""
+    import sqlite3
+    from pathlib import Path
+    from .modules.customers.manager import CustomerManager
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    mgr = CustomerManager(db=conn)
+    ok, result = mgr.create(name=name, contact_email=email, contact_name=contact, plan=plan, notes=notes)
+    if ok:
+        click.echo("")
+        click.echo("=" * 60)
+        click.echo("  CUSTOMER CREATED")
+        click.echo("=" * 60)
+        click.echo(f"  Customer ID: {result}")
+        click.echo(f"  Name:        {name}")
+        click.echo(f"  Plan:        {plan}")
+        click.echo(f"  Email:       {email or '(none)'}")
+        click.echo("=" * 60)
+    else:
+        click.echo(f"[!] {result}")
+    conn.close()
+
+
+@customer.command("list")
+@click.option("--status", "-s", default=None, help="Filter by status")
+def customer_list(status):
+    """List all customers."""
+    import sqlite3
+    from pathlib import Path
+    from .modules.customers.manager import CustomerManager
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    mgr = CustomerManager(db=conn)
+    customers = mgr.list_all(status=status)
+    if not customers:
+        click.echo("[!] No customers yet")
+    for c in customers:
+        click.echo(f"  [{c['status'].upper()}] {c['customer_id']}")
+        click.echo(f"    Name:  {c['name']}")
+        click.echo(f"    Plan:  {c['plan']}")
+        click.echo(f"    Email: {c['contact_email'] or '(none)'}")
+        click.echo()
+    conn.close()
+
+
+@customer.command("show")
+@click.option("--id", "-i", "customer_id", required=True, help="Customer ID")
+def customer_show(customer_id):
+    """Show customer details and stats."""
+    import sqlite3
+    from pathlib import Path
+    from .modules.customers.manager import CustomerManager
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    mgr = CustomerManager(db=conn)
+    c = mgr.get(customer_id)
+    if not c:
+        click.echo(f"[!] Customer not found: {customer_id}")
+        conn.close()
+        return
+    stats = mgr.stats(customer_id)
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo(f"  CUSTOMER: {c['name']}")
+    click.echo("=" * 60)
+    click.echo(f"  ID:      {c['customer_id']}")
+    click.echo(f"  Org:     {c['org_id']}")
+    click.echo(f"  Plan:    {c['plan']}")
+    click.echo(f"  Status:  {c['status']}")
+    click.echo(f"  Email:   {c['contact_email'] or '(none)'}")
+    click.echo(f"  Created: {c['created_at']}")
+    click.echo()
+    click.echo(f"  Hunts:   {stats.get('hunts', 0)}")
+    click.echo(f"  Findings: {stats.get('total_findings', 0)}")
+    for sev, cnt in stats.get('findings', {}).items():
+        click.echo(f"    {sev}: {cnt}")
+    click.echo("=" * 60)
+    conn.close()
+
+
+@customer.command("update")
+@click.option("--id", "-i", "customer_id", required=True)
+@click.option("--plan", "-P", default=None)
+@click.option("--status", "-s", default=None)
+@click.option("--email", "-e", default=None)
+def customer_update(customer_id, plan, status, email):
+    """Update customer fields."""
+    import sqlite3
+    from pathlib import Path
+    from .modules.customers.manager import CustomerManager
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    mgr = CustomerManager(db=conn)
+    ok, msg = mgr.update(customer_id, plan=plan, status=status, contact_email=email)
+    click.echo(f"[{'+' if ok else '!'}] {msg}")
+    conn.close()
+
 
 if __name__ == "__main__":
     main()
