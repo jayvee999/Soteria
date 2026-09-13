@@ -186,6 +186,54 @@ def check(domain, token, org):
         click.echo(f"[-] NOT VERIFIED: {result.get('error', 'unknown')}")
         click.echo(f"[!] Check DNS TTL (may take 5-10 min to propagate)")
 
+@main.command()
+@click.option("--url", "-u", required=True, help="Slack webhook URL")
+@click.option("--org", "-o", default="default", help="Organization ID")
+def slack(url, org):
+    """Configure Slack webhook for alerts."""
+    import json
+    from pathlib import Path
+    config_path = get_soteria_dir() / "integrations.json"
+    config = {}
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+    config.setdefault(org, {})
+    config[org]["slack_webhook"] = url
+    config_path.write_text(json.dumps(config, indent=2))
+    click.echo(f"[+] Slack webhook saved for {org}")
+
+
+@main.command()
+@click.option("--title", "-t", default="Test Finding", help="Finding title")
+@click.option("--org", "-o", default="default", help="Organization ID")
+def slacktest(title, org):
+    """Send a test message to Slack."""
+    import json
+    from .integrations.slack import SlackNotifier
+    from .models import Finding, Severity
+    config_path = get_soteria_dir() / "integrations.json"
+    if not config_path.exists():
+        click.echo("[!] No Slack webhook configured. Run: soteria slack -u URL")
+        return
+    config = json.loads(config_path.read_text())
+    webhook = config.get(org, {}).get("slack_webhook")
+    if not webhook:
+        click.echo(f"[!] No Slack webhook for {org}")
+        return
+    finding = Finding(
+        url="https://example.com/api/users/123",
+        type="idor",
+        severity=Severity.HIGH,
+        title=title,
+        description="Test finding from Soteria. This confirms Slack integration works.",
+        curl_command="curl https://example.com/api/users/124",
+        verified=True,
+    )
+    notifier = SlackNotifier(webhook)
+    if notifier.send(finding):
+        click.echo("[+] Test message sent to Slack")
+    else:
+        click.echo("[-] Failed to send Slack message")
 
 if __name__ == "__main__":
     main()
