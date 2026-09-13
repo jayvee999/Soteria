@@ -3,7 +3,7 @@ from pathlib import Path
 import httpx
 from .. import database as db
 
-KNOWLEDGE_BASE_PATH = Path.home() / ".keres" / "validator_kb.json"
+KNOWLEDGE_BASE_PATH = Path.home() / ".soteria" / "validator_kb.json"
 
 
 def load_knowledge_base():

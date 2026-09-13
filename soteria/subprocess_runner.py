@@ -52,7 +52,7 @@ def run(tool: str, args: List[str], timeout: int = _DEFAULT_TIMEOUT,
 
     if _check_docker() and tool in _TOOL_IMAGES:
         image = _TOOL_IMAGES[tool]
-        cname = f"keres-{tool}-{int(time.time())}"
+        cname = f"soteria-{tool}-{int(time.time())}"
         command = ["docker", "run", "--rm", "--name", cname, "--network=host",
                    "--read-only", "--tmpfs", "/tmp", image] + args
         register_container(cname)

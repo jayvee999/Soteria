@@ -5,8 +5,8 @@ from .database import finding_list
 
 
 class LiveDashboard:
-    def __init__(self, keres_dir: Path):
-        self.keres_dir = keres_dir
+    def __init__(self, soteria_dir: Path):
+        self.soteria_dir = soteria_dir
         self.running = False
         self.paused = False
         self.start_time = None

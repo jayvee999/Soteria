@@ -11,7 +11,7 @@ _DEFAULT = {
         "max_threads": 10,
         "timeout": 15,
         "ai_backend": "deepseek",
-        "output_dir": "~/.keres/output"
+        "output_dir": "~/.soteria/output"
     },
     "programs": {}
 }
@@ -51,7 +51,7 @@ class Config:
 
     @property
     def output_dir(self):
-        return Path(self.defaults.get("output_dir", "~/.keres/output")).expanduser()
+        return Path(self.defaults.get("output_dir", "~/.soteria/output")).expanduser()
 
     def program(self, name):
         return self._data.get("programs", {}).get(name, {})
@@ -103,7 +103,7 @@ class Config:
 
 def load(path=None):
     if path is None:
-        path = Path.home() / ".keres" / "config.yaml"
+        path = Path.home() / ".soteria" / "config.yaml"
     if not path.exists():
         return Config(_DEFAULT.copy())
     with path.open() as f:
@@ -113,7 +113,7 @@ def load(path=None):
 
 def save(cfg, path=None):
     if path is None:
-        path = Path.home() / ".keres" / "config.yaml"
+        path = Path.home() / ".soteria" / "config.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         yaml.safe_dump(cfg.raw(), f)
@@ -130,7 +130,7 @@ def _deep_merge(base, override):
 
 def write_default(path=None):
     if path is None:
-        path = Path.home() / ".keres" / "config.yaml"
+        path = Path.home() / ".soteria" / "config.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         yaml.safe_dump(_DEFAULT, f)

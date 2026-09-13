@@ -78,11 +78,11 @@ def validate_session(token):
     if not s or datetime.now(timezone.utc) > s.expires_at: return None
     return s
 
-def save_session_token(token, keres_dir):
-    p = keres_dir / ".session"; p.write_text(token); p.chmod(0o600)
+def save_session_token(token, soteria_dir):
+    p = soteria_dir / ".session"; p.write_text(token); p.chmod(0o600)
 
-def load_session_token(keres_dir):
-    p = keres_dir / ".session"
+def load_session_token(soteria_dir):
+    p = soteria_dir / ".session"
     return p.read_text().strip() if p.exists() else None
 
 def logout(token): db.session_delete(token)

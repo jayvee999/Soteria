@@ -9,9 +9,9 @@ from .dashboard import LiveDashboard
 
 
 def interactive_hunt():
-    keres_dir = Path.home() / ".keres"
-    cfg = load_config(keres_dir / "config.yaml")
-    init_db(keres_dir / "keres.db")
+    soteria_dir = Path.home() / ".soteria"
+    cfg = load_config(soteria_dir / "config.yaml")
+    init_db(soteria_dir / "soteria.db")
 
     print("""
 ╔══════════════════════════════════════════════════╗
@@ -22,7 +22,7 @@ def interactive_hunt():
 
     programs = list(cfg.raw().get("programs", {}).keys())
     if not programs:
-        print("[!] No programs configured. Edit ~/.keres/config.yaml")
+        print("[!] No programs configured. Edit ~/.soteria/config.yaml")
         return
 
     for i, prog in enumerate(programs, 1):
@@ -103,7 +103,7 @@ def interactive_hunt():
     if input("🚀 Launch hunt? [Y/n]: ").strip().lower() == "n":
         return
 
-    dashboard = LiveDashboard(keres_dir)
+    dashboard = LiveDashboard(soteria_dir)
     dashboard.start(len(targets))
 
     for target in targets:

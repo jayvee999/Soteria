@@ -11,12 +11,12 @@ _containers: Set[str] = set()
 _procs_lock = threading.Lock()
 _containers_lock = threading.Lock()
 _last_sigint = None
-_keres_dir = None
+_soteria_dir = None
 
 
-def init(keres_dir):
-    global _keres_dir
-    _keres_dir = keres_dir
+def init(soteria_dir):
+    global _soteria_dir
+    _soteria_dir = soteria_dir
     signal.signal(signal.SIGINT, _handle_sigint)
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
@@ -74,8 +74,8 @@ def _emergency_shutdown(reason):
         except Exception:
             pass
 
-    if _keres_dir:
-        token_path = _keres_dir / ".session"
+    if _soteria_dir:
+        token_path = _soteria_dir / ".session"
         if token_path.exists():
             try:
                 token_path.unlink()

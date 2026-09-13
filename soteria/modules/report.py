@@ -13,13 +13,13 @@ class ReportGenerator:
 
         if format == "markdown":
             output = self.generate_markdown(findings, program_name)
-            path = Path(f"~/keres_output/{program_name}_{datetime.now():%Y%m%d}.md").expanduser()
+            path = Path(f"~/soteria_output/{program_name}_{datetime.now():%Y%m%d}.md").expanduser()
         elif format == "json":
             output = self.export_json(findings)
-            path = Path(f"~/keres_output/{program_name}_{datetime.now():%Y%m%d}.json").expanduser()
+            path = Path(f"~/soteria_output/{program_name}_{datetime.now():%Y%m%d}.json").expanduser()
         else:
             output = self.generate_markdown(findings, program_name)
-            path = Path(f"~/keres_output/{program_name}_{datetime.now():%Y%m%d}.md").expanduser()
+            path = Path(f"~/soteria_output/{program_name}_{datetime.now():%Y%m%d}.md").expanduser()
 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(output)
@@ -27,7 +27,7 @@ class ReportGenerator:
 
     def generate_markdown(self, findings: list, program_name: str = "") -> str:
         lines = [
-            f"# Keres Vulnerability Report",
+            f"# Soteria Vulnerability Report",
             f"**Program:** {program_name or 'N/A'}",
             f"**Date:** {datetime.now():%Y-%m-%d}",
             f"**Findings:** {len(findings)}\n---"

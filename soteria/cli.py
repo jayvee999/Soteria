@@ -13,38 +13,39 @@ from .modules.report import ReportGenerator
 BANNER = r"""
 ╔═══════════════════════════════════════╗
 ║                                       ║
-║              ☽ ✚ ☾                    ║
-║                 \│/                   ║
-║                  │                    ║
-║             ╔════╧════╗               ║
-║             ║  KERES  ║               ║
-║             ╚════╤════╝               ║
-║                  │                    ║
+║               ◉                       ║
+║              ╱ ╲                      ║
+║             ╱   ╲                     ║
 ║                                       ║
-║      "The swarm sees everything."     ║
+║          ╔═══════════╗                ║
+║          ║ SOTERIA   ║                ║
+║          ╚═══════════╝                ║
+║                                       ║
+║  "Continuous protection.              ║
+║   Proven findings."                   ║
 ║                                       ║
 ╚═══════════════════════════════════════╝
 """
 
 
-def get_keres_dir():
-    return Path.home() / ".keres"
+def get_soteria_dir():
+    return Path.home() / ".soteria"
 
 
 @click.group()
 @click.pass_context
 def main(ctx):
-    keres_dir = get_keres_dir()
-    keres_dir.mkdir(parents=True, exist_ok=True)
-    init_db(keres_dir / "keres.db")
-    init_kill_switch(keres_dir)
-    cfg = load_config(keres_dir / "config.yaml")
+    soteria_dir = get_soteria_dir()
+    soteria_dir.mkdir(parents=True, exist_ok=True)
+    init_db(soteria_dir / "soteria.db")
+    init_kill_switch(soteria_dir)
+    cfg = load_config(soteria_dir / "config.yaml")
 
     ctx.ensure_object(dict)
     ctx.obj["config"] = cfg
-    ctx.obj["keres_dir"] = keres_dir
+    ctx.obj["soteria_dir"] = soteria_dir
 
-    token = load_session_token(keres_dir)
+    token = load_session_token(soteria_dir)
     if token:
         session = validate_session(token)
         if session:
@@ -61,7 +62,7 @@ def main(ctx):
         click.echo(f"[!] {msg}")
         sys.exit(1)
 
-    save_session_token(session.token, keres_dir)
+    save_session_token(session.token, soteria_dir)
     ctx.obj["session"] = session
     click.echo(f"[+] Authenticated as {username}")
 
@@ -126,20 +127,6 @@ def config(action):
 
 @main.command()
 @click.argument("action")
-@click.option("--key", "-k")
-def license(action, key):
-    """License management."""
-    from .auth import activate_license, generate_license_key
-    if action == "activate" and key:
-        ok, msg, _ = activate_license(key)
-        click.echo(f"[{'+' if ok else '!'}] {msg}")
-    elif action == "generate":
-        plain_key, _ = generate_license_key()
-        click.echo(f"[+] License: {plain_key}")
-
-
-@main.command()
-@click.argument("action")
 def train(action):
     """Training data management."""
     from .trainer import seed_database, export_jsonl
@@ -147,7 +134,7 @@ def train(action):
         count = seed_database()
         click.echo(f"[+] {count} entries")
     elif action == "export":
-        path = get_keres_dir() / "training_export.jsonl"
+        path = get_soteria_dir() / "training_export.jsonl"
         count = export_jsonl(path)
         click.echo(f"[+] Exported {count} entries")
 
