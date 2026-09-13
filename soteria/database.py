@@ -34,23 +34,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT,
     expires_at TEXT
 );
-CREATE TABLE IF NOT EXISTS tool_licenses (
-    license_id TEXT PRIMARY KEY,
-    key_hash TEXT UNIQUE,
-    role TEXT,
-    created_at TEXT,
-    expires_at TEXT,
-    revoked INTEGER DEFAULT 0,
-    revoked_at TEXT,
-    note TEXT
-);
-CREATE TABLE IF NOT EXISTS license_activations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    license_id TEXT REFERENCES tool_licenses(license_id),
-    machine_fingerprint TEXT,
-    activated_at TEXT,
-    active INTEGER DEFAULT 1
-);
 CREATE TABLE IF NOT EXISTS recon_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     target_domain TEXT,
@@ -112,6 +95,14 @@ def init(db_path: Path):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = _connect()
     con.executescript(_SCHEMA)
+
+    # Install authorization schema
+    try:
+        from .modules.authorization.setup import AUTH_SCHEMA
+        con.executescript(AUTH_SCHEMA)
+    except Exception as e:
+        log.warning("Authorization schema install failed: %s", e)
+
     con.close()
 
 
@@ -154,7 +145,8 @@ def log_action(action, **kw):
         with _tx() as con:
             con.execute(
                 "INSERT INTO scan_log (timestamp,action,target,tool,command,output_summary,status,operator) VALUES (?,?,?,?,?,?,?,?)",
-                (_now(), action, kw.get('target'), kw.get('tool'), kw.get('command'), kw.get('output_summary'), kw.get('status', 'ok'), kw.get('operator'))
+                (_now(), action, kw.get('target'), kw.get('tool'), kw.get('command'),
+                 kw.get('output_summary'), kw.get('status', 'ok'), kw.get('operator'))
             )
     except Exception:
         pass
@@ -164,7 +156,8 @@ def user_create(user: User):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO users (username,password_hash,role,created_at,password_changed_at,active) VALUES (?,?,?,?,?,?)",
-            (user.username, user.password_hash, user.role.value, _iso(user.created_at), _iso(user.password_changed_at), int(user.active))
+            (user.username, user.password_hash, user.role.value,
+             _iso(user.created_at), _iso(user.password_changed_at), int(user.active))
         )
         user.id = cur.lastrowid
     return user
@@ -178,8 +171,9 @@ def user_get(username: str):
         return None
     return User(
         id=row["id"], username=row["username"], password_hash=row["password_hash"],
-        role=Role(row["role"]), created_at=_dt(row["created_at"]), last_login=_dt(row["last_login"]),
-        password_changed_at=_dt(row["password_changed_at"]), locked_until=_dt(row["locked_until"]), active=bool(row["active"])
+        role=Role(row["role"]), created_at=_dt(row["created_at"]),
+        last_login=_dt(row["last_login"]), password_changed_at=_dt(row["password_changed_at"]),
+        locked_until=_dt(row["locked_until"]), active=bool(row["active"])
     )
 
 
@@ -187,24 +181,40 @@ def user_list():
     con = _connect()
     rows = con.execute("SELECT * FROM users").fetchall()
     con.close()
-    return [User(id=r["id"], username=r["username"], password_hash=r["password_hash"], role=Role(r["role"]), created_at=_dt(r["created_at"]), last_login=_dt(r["last_login"]), password_changed_at=_dt(r["password_changed_at"]), locked_until=_dt(r["locked_until"]), active=bool(r["active"])) for r in rows]
+    return [
+        User(id=r["id"], username=r["username"], password_hash=r["password_hash"],
+             role=Role(r["role"]), created_at=_dt(r["created_at"]),
+             last_login=_dt(r["last_login"]), password_changed_at=_dt(r["password_changed_at"]),
+             locked_until=_dt(r["locked_until"]), active=bool(r["active"]))
+        for r in rows
+    ]
 
 
 def login_attempt_record(attempt: LoginAttempt):
     with _tx() as con:
-        con.execute("INSERT INTO login_attempts (username,success,timestamp) VALUES (?,?,?)", (attempt.username, int(attempt.success), _iso(attempt.timestamp)))
+        con.execute(
+            "INSERT INTO login_attempts (username,success,timestamp) VALUES (?,?,?)",
+            (attempt.username, int(attempt.success), _iso(attempt.timestamp))
+        )
 
 
 def login_attempt_recent_failures(username, since):
     con = _connect()
-    n = con.execute("SELECT COUNT(*) FROM login_attempts WHERE username=? AND success=0 AND timestamp>?", (username, _iso(since))).fetchone()[0]
+    n = con.execute(
+        "SELECT COUNT(*) FROM login_attempts WHERE username=? AND success=0 AND timestamp>?",
+        (username, _iso(since))
+    ).fetchone()[0]
     con.close()
     return n
 
 
 def session_create(session: Session):
     with _tx() as con:
-        con.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)", (session.token, session.username, session.role.value, _iso(session.created_at), _iso(session.expires_at)))
+        con.execute(
+            "INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)",
+            (session.token, session.username, session.role.value,
+             _iso(session.created_at), _iso(session.expires_at))
+        )
 
 
 def session_get(token):
@@ -213,7 +223,10 @@ def session_get(token):
     con.close()
     if not row:
         return None
-    return Session(token=row["token"], username=row["username"], role=Role(row["role"]), created_at=_dt(row["created_at"]), expires_at=_dt(row["expires_at"]))
+    return Session(
+        token=row["token"], username=row["username"], role=Role(row["role"]),
+        created_at=_dt(row["created_at"]), expires_at=_dt(row["expires_at"])
+    )
 
 
 def session_delete(token):
@@ -221,38 +234,13 @@ def session_delete(token):
         con.execute("DELETE FROM sessions WHERE token=?", (token,))
 
 
-def license_create(rec: LicenseRecord):
-    with _tx() as con:
-        con.execute("INSERT INTO tool_licenses VALUES (?,?,?,?,?,?,?,?)", (rec.license_id, rec.key_hash, rec.role.value, _iso(rec.created_at), _iso(rec.expires_at), int(rec.revoked), _iso(rec.revoked_at), rec.note))
-
-
-def license_get_by_key_hash(h):
-    con = _connect()
-    row = con.execute("SELECT * FROM tool_licenses WHERE key_hash=?", (h,)).fetchone()
-    con.close()
-    if not row:
-        return None
-    return LicenseRecord(license_id=row["license_id"], key_hash=row["key_hash"], role=Role(row["role"]), created_at=_dt(row["created_at"]), expires_at=_dt(row["expires_at"]), revoked=bool(row["revoked"]), revoked_at=_dt(row["revoked_at"]), note=row["note"])
-
-
-def license_activation_exists(lid):
-    con = _connect()
-    n = con.execute("SELECT COUNT(*) FROM license_activations WHERE license_id=? AND active=1", (lid,)).fetchone()[0]
-    con.close()
-    return n > 0
-
-
-def license_activate(act: LicenseActivation):
-    with _tx() as con:
-        con.execute("INSERT INTO license_activations (license_id,machine_fingerprint,activated_at,active) VALUES (?,?,?,?)", (act.license_id, act.machine_fingerprint, _iso(act.activated_at), int(act.active)))
-
-
 def finding_save(finding: Finding):
     with _tx() as con:
         con.execute(
             "INSERT OR REPLACE INTO findings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (finding.finding_id, finding.url, finding.type, finding.severity.value, finding.title, finding.description,
-             finding.raw_request, finding.raw_response, finding.curl_command, json.dumps(finding.reproduction_steps),
+            (finding.finding_id, finding.url, finding.type, finding.severity.value,
+             finding.title, finding.description, finding.raw_request, finding.raw_response,
+             finding.curl_command, json.dumps(finding.reproduction_steps),
              finding.cvss_score, finding.cvss_vector, finding.remediation,
              int(finding.verified), int(finding.false_positive), int(finding.reported),
              _iso(finding.discovered_at), finding.ai_notes)
@@ -270,19 +258,36 @@ def finding_list(verified_only=False, exclude_fp=True):
     con = _connect()
     rows = con.execute(f"SELECT * FROM findings {where} ORDER BY discovered_at DESC").fetchall()
     con.close()
-    return [Finding(finding_id=r["finding_id"], url=r["url"], type=r["type"], severity=Severity(r["severity"]), title=r["title"], description=r["description"], raw_request=r["raw_request"], raw_response=r["raw_response"], curl_command=r["curl_command"], reproduction_steps=json.loads(r["reproduction_steps"]), cvss_score=r["cvss_score"], cvss_vector=r["cvss_vector"], remediation=r["remediation"], verified=bool(r["verified"]), false_positive=bool(r["false_positive"]), reported=bool(r["reported"]), discovered_at=_dt(r["discovered_at"]), ai_notes=r["ai_notes"]) for r in rows]
+    return [
+        Finding(
+            finding_id=r["finding_id"], url=r["url"], type=r["type"],
+            severity=Severity(r["severity"]), title=r["title"], description=r["description"],
+            raw_request=r["raw_request"], raw_response=r["raw_response"],
+            curl_command=r["curl_command"], reproduction_steps=json.loads(r["reproduction_steps"]),
+            cvss_score=r["cvss_score"], cvss_vector=r["cvss_vector"],
+            remediation=r["remediation"], verified=bool(r["verified"]),
+            false_positive=bool(r["false_positive"]), reported=bool(r["reported"]),
+            discovered_at=_dt(r["discovered_at"]), ai_notes=r["ai_notes"]
+        )
+        for r in rows
+    ]
 
 
 def finding_update_verification(fid, verified, fp):
     with _tx() as con:
-        con.execute("UPDATE findings SET verified=?, false_positive=? WHERE finding_id=?", (int(verified), int(fp), fid))
+        con.execute(
+            "UPDATE findings SET verified=?, false_positive=? WHERE finding_id=?",
+            (int(verified), int(fp), fid)
+        )
 
 
 def recon_save(result: ReconResult):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO recon_results (target_domain,url,status_code,technologies,title,headers,content_length,discovered_at,behind_cdn) VALUES (?,?,?,?,?,?,?,?,?)",
-            (result.target_domain, result.url, result.status_code, json.dumps(result.technologies), result.title, json.dumps(result.headers), result.content_length, _iso(result.discovered_at), int(result.behind_cdn))
+            (result.target_domain, result.url, result.status_code,
+             json.dumps(result.technologies), result.title, json.dumps(result.headers),
+             result.content_length, _iso(result.discovered_at), int(result.behind_cdn))
         )
         result.id = cur.lastrowid
     return result
@@ -292,7 +297,8 @@ def training_save(entry: TrainingEntry):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO training_data (instruction,input,output,category,source,created_at) VALUES (?,?,?,?,?,?)",
-            (entry.instruction, entry.input, entry.output, entry.category, entry.source, _iso(entry.created_at))
+            (entry.instruction, entry.input, entry.output, entry.category,
+             entry.source, _iso(entry.created_at))
         )
         entry.id = cur.lastrowid
     return entry
@@ -312,4 +318,9 @@ def training_list(category=None):
     else:
         rows = con.execute("SELECT * FROM training_data ORDER BY created_at DESC").fetchall()
     con.close()
-    return [TrainingEntry(id=r["id"], instruction=r["instruction"], input=r["input"], output=r["output"], category=r["category"], source=r["source"], created_at=_dt(r["created_at"])) for r in rows]
+    return [
+        TrainingEntry(id=r["id"], instruction=r["instruction"], input=r["input"],
+                      output=r["output"], category=r["category"], source=r["source"],
+                      created_at=_dt(r["created_at"]))
+        for r in rows
+    ]

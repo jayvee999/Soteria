@@ -11,20 +11,12 @@ from .modules.fuzzer import CustomFuzzer
 from .modules.report import ReportGenerator
 
 BANNER = r"""
-╔═══════════════════════════════════════╗
-║                                       ║
-║               ◉                       ║
-║              ╱ ╲                      ║
-║             ╱   ╲                     ║
-║                                       ║
-║          ╔═══════════╗                ║
-║          ║ SOTERIA   ║                ║
-║          ╚═══════════╝                ║
-║                                       ║
-║  "Continuous protection.              ║
-║   Proven findings."                   ║
-║                                       ║
-╚═══════════════════════════════════════╝
+=======================================
+              SOTERIA
+=======================================
+   Continuous protection.
+   Proven findings.
+=======================================
 """
 
 
@@ -84,45 +76,39 @@ def recon(domain):
 
 @main.command()
 @click.option("--target", "-t", required=True)
-@click.option("--templates", "-T", multiple=True)
-@click.option("--severity", "-s")
-def scan(target, templates, severity):
+def scan(target):
     """Run vulnerability scanning."""
     scanner = VulnerabilityScanner()
-    scanner.run(target, list(templates) if templates else None, severity)
+    scanner.run(target)
 
 
 @main.command()
 @click.option("--url", "-u", required=True)
-@click.option("--params", "-p", multiple=True)
-def fuzz(url, params):
-    """Custom fuzzing for injection vulnerabilities."""
+def fuzz(url):
+    """Custom fuzzing."""
     fuzzer = CustomFuzzer()
-    fuzzer.run(url, list(params) if params else None)
+    fuzzer.run(url)
 
 
 @main.command()
 @click.option("--program", "-P", required=True)
-@click.option("--format", "-f", default="markdown")
-def report(program, format):
-    """Generate report from verified findings."""
+def report(program):
+    """Generate report."""
     gen = ReportGenerator()
-    gen.run(program, format)
+    gen.run(program)
 
 
 @main.command()
 @click.argument("action")
 def config(action):
     """Manage configuration."""
-    if action == "show":
+    if action == "init":
+        write_default()
+        click.echo("[+] Config written")
+    elif action == "show":
         import yaml
         cfg = load_config()
         click.echo(yaml.dump(cfg.raw()))
-    elif action == "init":
-        write_default()
-        click.echo("[+] Default config written")
-    else:
-        click.echo(f"[!] Unknown config action: {action}")
 
 
 @main.command()
@@ -147,6 +133,58 @@ def admin(action):
         from .database import user_list
         for u in user_list():
             click.echo(f"  {u.username} ({u.role.value})")
+
+
+@main.command()
+@click.option("--domain", "-d", required=True, help="Domain to verify")
+@click.option("--org", "-o", default="default", help="Organization ID")
+def verify(domain, org):
+    """Request ownership verification for a target domain."""
+    from .modules.authorization.verifier import OwnershipVerifier
+    verifier = OwnershipVerifier()
+    token = verifier.generate_token(org, domain)
+
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("  SOTERIA — OWNERSHIP VERIFICATION")
+    click.echo("=" * 60)
+    click.echo("")
+    click.echo(f"  Domain: {domain}")
+    click.echo(f"  Token:  {token}")
+    click.echo("")
+    click.echo("  CHOOSE ONE METHOD:")
+    click.echo("")
+    click.echo("  [DNS METHOD]")
+    click.echo(f"    Add a TXT record:")
+    click.echo(f"    Name:  _soteria-verify.{domain}")
+    click.echo(f"    Value: {token}")
+    click.echo("")
+    click.echo("  [FILE METHOD]")
+    click.echo(f"    URL:  https://{domain}/.well-known/soteria-verify.txt")
+    click.echo(f"    Content: {token}")
+    click.echo("")
+    click.echo("  After setup, run:")
+    click.echo(f"    soteria check -d {domain} -t {token}")
+    click.echo("")
+    click.echo("=" * 60)
+
+
+@main.command()
+@click.option("--domain", "-d", required=True, help="Domain to check")
+@click.option("--token", "-t", required=True, help="Verification token")
+@click.option("--org", "-o", default="default", help="Organization ID")
+def check(domain, token, org):
+    """Check ownership verification."""
+    from .modules.authorization.verifier import OwnershipVerifier
+    verifier = OwnershipVerifier()
+    click.echo(f"[*] Verifying {domain}...")
+    result = verifier.verify_target(org, domain, token)
+    if result["verified"]:
+        click.echo(f"[+] VERIFIED via {result['method'].upper()}")
+        click.echo(f"[+] Scans authorized for {domain}")
+    else:
+        click.echo(f"[-] NOT VERIFIED: {result.get('error', 'unknown')}")
+        click.echo(f"[!] Check DNS TTL (may take 5-10 min to propagate)")
 
 
 if __name__ == "__main__":
