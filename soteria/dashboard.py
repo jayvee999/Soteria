@@ -102,7 +102,7 @@ class LiveDashboard:
 
         print(f"""
 ╔══════════════════════════════════════════════════════════════════╗
-║                    KERES LIVE DASHBOARD                         ║
+║                    SOTERIA LIVE DASHBOARD                         ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  ⏱️  Elapsed: {elapsed_str:<48} ║
 ║  📡 Status:  {status:<48} ║

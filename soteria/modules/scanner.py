@@ -1,38 +1,55 @@
-import json, logging, subprocess
+import json
+import logging
+import subprocess
 from .. import database as db
 from ..models import Finding, Severity
+from .authorization.hunt import HuntManager, HuntError
 
 log = logging.getLogger(__name__)
 
 
 class VulnerabilityScanner:
-    def __init__(self):
-        pass
+    REAL_EXPOSURE_CODES = ["200", "201", "202"]
 
-    def run(self, target: str, templates: list = None, severity: str = None, target_context: str = None):
-        log.info("Scanning %s", target)
+    def __init__(self, hunt_id: str = None):
+        self.hunt_id = hunt_id
+        self.hunt = HuntManager(db=db._connect())
 
-        # Nuclei scan
+    def run(self, target: str, templates=None, severity=None, target_context=None):
+        # LEGAL GATE: require valid hunt ID before any scan
+        if not self.hunt_id:
+            raise HuntError(
+                "Scan requires a hunt ID. Use --hunt HUNT-XXXX or create one with "
+                "'soteria hunt create'."
+            )
+
+        # Verify hunt is valid and target is in scope
+        self.hunt.require_hunt(self.hunt_id, target)
+        log.info("Authorized scan for %s (hunt=%s)", target, self.hunt_id)
+
+        # Log the authorized scan
+        db.log_action(
+            "authorized_scan",
+            target=target,
+            tool="scanner",
+            output_summary=f"hunt_id={self.hunt_id}",
+            status="ok",
+        )
+
+        # Existing scan logic
         try:
             args = ["-u", target, "-silent", "-json"]
-            if templates:
-                for t in templates:
-                    args += ["-t", t]
-            if severity:
-                args += ["-severity", severity]
-            r = subprocess.run(
-                ["nuclei"] + args,
-                capture_output=True, text=True, timeout=300
-            )
+            r = subprocess.run(["nuclei"] + args, capture_output=True, text=True, timeout=300)
             if r.stdout:
                 self._parse_nuclei_output(target, r.stdout)
+        except FileNotFoundError:
+            pass
         except Exception as e:
             log.warning("nuclei failed: %s", e)
 
-        # Custom checks
         self._custom_checks(target)
 
-    def _parse_nuclei_output(self, target: str, output: str):
+    def _parse_nuclei_output(self, target, output):
         for line in output.strip().split("\n"):
             if not line.strip():
                 continue
@@ -49,32 +66,39 @@ class VulnerabilityScanner:
                     remediation=info.get("remediation", ""),
                 )
                 db.finding_save(finding)
-                log.info("Found: %s", finding.title)
             except Exception as e:
                 log.debug("Parse error: %s", e)
 
-    def _custom_checks(self, target: str):
-        paths = [
-            "/.git/config", "/.env", "/robots.txt", "/sitemap.xml",
-            "/wp-admin", "/wp-json/wp/v2/users", "/admin", "/debug",
-            "/phpinfo.php", "/.well-known/security.txt"
-        ]
-        for path in paths:
+    def _custom_checks(self, target):
+        checks = {
+            "/.git/config": ("git_exposure", Severity.HIGH),
+            "/.env": ("env_exposure", Severity.CRITICAL),
+            "/.env.local": ("env_exposure", Severity.CRITICAL),
+            "/.git/HEAD": ("git_exposure", Severity.HIGH),
+            "/backup.zip": ("backup_exposure", Severity.HIGH),
+            "/backup.sql": ("backup_exposure", Severity.HIGH),
+            "/phpinfo.php": ("debug_exposure", Severity.MEDIUM),
+            "/actuator/env": ("spring_actuator", Severity.HIGH),
+        }
+        base = target.rstrip('/')
+        for path, (f_type, severity) in checks.items():
             try:
                 r = subprocess.run(
-                    ["curl", "-s", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", f"{target.rstrip('/')}{path}"],
-                    capture_output=True, text=True, timeout=8
+                    ["curl", "-s", "-m", "6", "-o", "/dev/null",
+                     "-w", "%{http_code}", "-L", f"{base}{path}"],
+                    capture_output=True, text=True, timeout=10
                 )
                 code = r.stdout.strip()
-                if code and code not in ["000", "404"]:
+                if code in self.REAL_EXPOSURE_CODES:
                     finding = Finding(
-                        url=f"{target.rstrip('/')}{path}",
-                        type="information_disclosure",
-                        severity=Severity.MEDIUM if code == "200" else Severity.LOW,
+                        url=f"{base}{path}",
+                        type=f_type,
+                        severity=severity,
                         title=f"Exposed: {path}",
-                        description=f"Endpoint {path} returned HTTP {code}",
-                        curl_command=f"curl -s {target.rstrip('/')}{path}",
+                        description=f"Endpoint {path} returned HTTP {code}.",
+                        curl_command=f"curl -s -L {base}{path}",
                     )
                     db.finding_save(finding)
+                    print(f"  [!!!] {severity.value}: {path} [{code}]")
             except Exception:
                 pass

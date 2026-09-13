@@ -9,6 +9,7 @@ from .modules.recon import ReconEngine
 from .modules.scanner import VulnerabilityScanner
 from .modules.fuzzer import CustomFuzzer
 from .modules.report import ReportGenerator
+from .modules.authorization.hunt import HuntManager
 
 BANNER = r"""
 =======================================
@@ -46,14 +47,12 @@ def main(ctx):
 
     click.echo(BANNER)
     click.echo("RESTRICTED ACCESS")
-
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
     ok, msg, session = login(username, password)
     if not ok:
         click.echo(f"[!] {msg}")
         sys.exit(1)
-
     save_session_token(session.token, soteria_dir)
     ctx.obj["session"] = session
     click.echo(f"[+] Authenticated as {username}")
@@ -69,33 +68,35 @@ def start():
 @main.command()
 @click.option("--domain", "-d", required=True)
 def recon(domain):
-    """Enumerate subdomains and detect live hosts."""
-    engine = ReconEngine()
-    engine.run(domain)
+    """Enumerate subdomains."""
+    ReconEngine().run(domain)
 
 
 @main.command()
 @click.option("--target", "-t", required=True)
-def scan(target):
-    """Run vulnerability scanning."""
-    scanner = VulnerabilityScanner()
-    scanner.run(target)
+@click.option("--hunt", "-H", required=True, help="Hunt ID (required)")
+def scan(target, hunt):
+    """Run vulnerability scanning (requires hunt ID)."""
+    try:
+        scanner = VulnerabilityScanner(hunt_id=hunt)
+        scanner.run(target)
+    except Exception as e:
+        click.echo(f"[!] {e}")
+        sys.exit(1)
 
 
 @main.command()
 @click.option("--url", "-u", required=True)
 def fuzz(url):
     """Custom fuzzing."""
-    fuzzer = CustomFuzzer()
-    fuzzer.run(url)
+    CustomFuzzer().run(url)
 
 
 @main.command()
 @click.option("--program", "-P", required=True)
 def report(program):
     """Generate report."""
-    gen = ReportGenerator()
-    gen.run(program)
+    ReportGenerator().run(program)
 
 
 @main.command()
@@ -117,12 +118,10 @@ def train(action):
     """Training data management."""
     from .trainer import seed_database, export_jsonl
     if action == "collect":
-        count = seed_database()
-        click.echo(f"[+] {count} entries")
+        click.echo(f"[+] {seed_database()} entries")
     elif action == "export":
         path = get_soteria_dir() / "training_export.jsonl"
-        count = export_jsonl(path)
-        click.echo(f"[+] Exported {count} entries")
+        click.echo(f"[+] Exported {export_jsonl(path)} entries")
 
 
 @main.command()
@@ -136,43 +135,33 @@ def admin(action):
 
 
 @main.command()
-@click.option("--domain", "-d", required=True, help="Domain to verify")
-@click.option("--org", "-o", default="default", help="Organization ID")
+@click.option("--domain", "-d", required=True)
+@click.option("--org", "-o", default="default")
 def verify(domain, org):
-    """Request ownership verification for a target domain."""
+    """Request ownership verification."""
     from .modules.authorization.verifier import OwnershipVerifier
-    verifier = OwnershipVerifier()
-    token = verifier.generate_token(org, domain)
-
+    token = OwnershipVerifier().generate_token(org, domain)
     click.echo("")
     click.echo("=" * 60)
-    click.echo("  SOTERIA — OWNERSHIP VERIFICATION")
+    click.echo("  OWNERSHIP VERIFICATION")
     click.echo("=" * 60)
-    click.echo("")
     click.echo(f"  Domain: {domain}")
     click.echo(f"  Token:  {token}")
     click.echo("")
-    click.echo("  CHOOSE ONE METHOD:")
-    click.echo("")
-    click.echo("  [DNS METHOD]")
-    click.echo(f"    Add a TXT record:")
+    click.echo("  DNS METHOD:")
     click.echo(f"    Name:  _soteria-verify.{domain}")
     click.echo(f"    Value: {token}")
     click.echo("")
-    click.echo("  [FILE METHOD]")
+    click.echo("  FILE METHOD:")
     click.echo(f"    URL:  https://{domain}/.well-known/soteria-verify.txt")
     click.echo(f"    Content: {token}")
-    click.echo("")
-    click.echo("  After setup, run:")
-    click.echo(f"    soteria check -d {domain} -t {token}")
-    click.echo("")
     click.echo("=" * 60)
 
 
 @main.command()
-@click.option("--domain", "-d", required=True, help="Domain to check")
-@click.option("--token", "-t", required=True, help="Verification token")
-@click.option("--org", "-o", default="default", help="Organization ID")
+@click.option("--domain", "-d", required=True)
+@click.option("--token", "-t", required=True)
+@click.option("--org", "-o", default="default")
 def check(domain, token, org):
     """Check ownership verification."""
     from .modules.authorization.verifier import OwnershipVerifier
@@ -181,59 +170,87 @@ def check(domain, token, org):
     result = verifier.verify_target(org, domain, token)
     if result["verified"]:
         click.echo(f"[+] VERIFIED via {result['method'].upper()}")
-        click.echo(f"[+] Scans authorized for {domain}")
     else:
         click.echo(f"[-] NOT VERIFIED: {result.get('error', 'unknown')}")
-        click.echo(f"[!] Check DNS TTL (may take 5-10 min to propagate)")
-
-@main.command()
-@click.option("--url", "-u", required=True, help="Slack webhook URL")
-@click.option("--org", "-o", default="default", help="Organization ID")
-def slack(url, org):
-    """Configure Slack webhook for alerts."""
-    import json
-    from pathlib import Path
-    config_path = get_soteria_dir() / "integrations.json"
-    config = {}
-    if config_path.exists():
-        config = json.loads(config_path.read_text())
-    config.setdefault(org, {})
-    config[org]["slack_webhook"] = url
-    config_path.write_text(json.dumps(config, indent=2))
-    click.echo(f"[+] Slack webhook saved for {org}")
 
 
-@main.command()
-@click.option("--title", "-t", default="Test Finding", help="Finding title")
-@click.option("--org", "-o", default="default", help="Organization ID")
-def slacktest(title, org):
-    """Send a test message to Slack."""
-    import json
-    from .integrations.slack import SlackNotifier
-    from .models import Finding, Severity
-    config_path = get_soteria_dir() / "integrations.json"
-    if not config_path.exists():
-        click.echo("[!] No Slack webhook configured. Run: soteria slack -u URL")
-        return
-    config = json.loads(config_path.read_text())
-    webhook = config.get(org, {}).get("slack_webhook")
-    if not webhook:
-        click.echo(f"[!] No Slack webhook for {org}")
-        return
-    finding = Finding(
-        url="https://example.com/api/users/123",
-        type="idor",
-        severity=Severity.HIGH,
-        title=title,
-        description="Test finding from Soteria. This confirms Slack integration works.",
-        curl_command="curl https://example.com/api/users/124",
-        verified=True,
+# ── HUNT COMMANDS ──
+
+@main.group()
+def hunt():
+    """Manage hunt IDs (required for scans)."""
+    pass
+
+
+@hunt.command("create")
+@click.option("--org", "-o", default="default")
+@click.option("--name", "-n", default="engagement", help="Hunt name")
+@click.option("--domains", "-D", required=True, help="Comma-separated target domains")
+@click.option("--authorized-by", "-A", required=True, help="Who authorized this hunt")
+@click.option("--valid-days", "-V", default=365, help="Valid for N days")
+def hunt_create(org, name, domains, authorized_by, valid_days):
+    """Create a new hunt ID."""
+    from datetime import datetime, timedelta, timezone
+    hunt_id = HuntManager.generate_id(org, name)
+    valid_until = (datetime.now(timezone.utc) + timedelta(days=valid_days)).isoformat()
+    domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+
+    manager = HuntManager(db=__import__("soteria.database", fromlist=["_connect"])._connect())
+    ok = manager.create_hunt(
+        hunt_id=hunt_id,
+        org_id=org,
+        target_domains=domain_list,
+        scope_document="",
+        authorized_by=authorized_by,
+        valid_until=valid_until,
     )
-    notifier = SlackNotifier(webhook)
-    if notifier.send(finding):
-        click.echo("[+] Test message sent to Slack")
+    if ok:
+        click.echo("")
+        click.echo("=" * 60)
+        click.echo("  HUNT CREATED")
+        click.echo("=" * 60)
+        click.echo(f"  Hunt ID:        {hunt_id}")
+        click.echo(f"  Organization:   {org}")
+        click.echo(f"  Target domains: {', '.join(domain_list)}")
+        click.echo(f"  Authorized by:  {authorized_by}")
+        click.echo(f"  Valid until:    {valid_until}")
+        click.echo("")
+        click.echo(f"  Use this hunt ID for scans:")
+        click.echo(f"    soteria scan -t https://target.com --hunt {hunt_id}")
+        click.echo("=" * 60)
     else:
-        click.echo("[-] Failed to send Slack message")
+        click.echo("[!] Failed to create hunt")
+
+
+@hunt.command("list")
+def hunt_list():
+    """List all hunts."""
+    import sqlite3
+    from pathlib import Path
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM hunts ORDER BY created_at DESC").fetchall()
+    if not rows:
+        click.echo("[!] No hunts created yet")
+    for r in rows:
+        status = "ACTIVE" if r["active"] else "REVOKED"
+        click.echo(f"  [{status}] {r['hunt_id']}")
+        click.echo(f"    Org: {r['org_id']} | Domains: {r['target_domains']}")
+        click.echo(f"    Authorized by: {r['authorized_by']}")
+        click.echo()
+    conn.close()
+
+
+@hunt.command("revoke")
+@click.argument("hunt_id")
+def hunt_revoke(hunt_id):
+    """Revoke a hunt ID."""
+    manager = HuntManager(db=__import__("soteria.database", fromlist=["_connect"])._connect())
+    if manager.revoke(hunt_id):
+        click.echo(f"[+] Revoked: {hunt_id}")
+    else:
+        click.echo(f"[!] Failed to revoke: {hunt_id}")
+
 
 if __name__ == "__main__":
     main()

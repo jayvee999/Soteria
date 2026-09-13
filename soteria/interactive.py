@@ -14,11 +14,11 @@ def interactive_hunt():
     init_db(soteria_dir / "soteria.db")
 
     print("""
-╔══════════════════════════════════════════════════╗
-║              ☽ ✚ ☾  KERES HUNT                  ║
-║         Interactive Hunting Session              ║
-╚══════════════════════════════════════════════════╝
-""")
+===================================================
+              SOTERIA HUNT
+         Interactive Hunting Session
+===================================================
+""") 
 
     programs = list(cfg.raw().get("programs", {}).keys())
     if not programs:

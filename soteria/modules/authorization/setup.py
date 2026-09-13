@@ -33,10 +33,25 @@ CREATE TABLE IF NOT EXISTS authorization_attempts (
     note      TEXT
 );
 
+CREATE TABLE IF NOT EXISTS hunts (
+    hunt_id         TEXT PRIMARY KEY,
+    org_id          TEXT NOT NULL,
+    target_domains  TEXT NOT NULL,
+    scope_document  TEXT,
+    authorized_by   TEXT NOT NULL,
+    valid_until     TEXT,
+    note            TEXT,
+    created_at      TEXT NOT NULL,
+    revoked_at      TEXT,
+    active          INTEGER DEFAULT 1
+);
+
 CREATE INDEX IF NOT EXISTS idx_auth_org_domain
     ON authorizations(org_id, target_domain);
 CREATE INDEX IF NOT EXISTS idx_auth_verified
     ON authorizations(proof_verified, revoked);
+CREATE INDEX IF NOT EXISTS idx_hunt_active
+    ON hunts(active, valid_until);
 """
 
 
