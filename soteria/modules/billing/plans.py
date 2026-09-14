@@ -1,11 +1,59 @@
 """
-Soteria — Pricing plans with detailed value matrix.
+Soteria — Pricing plans.
 """
 
-TRIAL_DAYS = 30
+PILOT_DAYS = 30
 
 
 PLANS = {
+    "pilot": {
+        "name": "30-Day Pilot",
+        "price_usd": 500,
+        "interval": "one_time",
+        "duration_days": PILOT_DAYS,
+        "description": "Full access. Refund if we find nothing.",
+        "target": "Serious evaluators",
+        "limits": {
+            "domains": 5,
+            "scans_per_day": 4,
+            "team_members": 3,
+            "historical_data_days": 30,
+        },
+        "features": [
+            "Up to 5 external domains",
+            "Continuous scanning (4x daily)",
+            "Adversarial AI validation",
+            "Slack alerts for verified findings",
+            "Executive PDF reports",
+            "Weekly 30-min review call",
+            "Dedicated Slack channel with founder",
+        ],
+        "integrations": ["Slack", "Email"],
+        "feature_flags": {
+            "slack": True,
+            "jira": False,
+            "github": False,
+            "gitlab": False,
+            "teams": False,
+            "pagerduty": False,
+            "compliance_mapping": False,
+            "cicd": False,
+            "custom_branding": False,
+            "dedicated_csm": False,
+            "on_premise": False,
+        },
+        "support": {
+            "channel": "Email + Slack",
+            "response_time_hours": 24,
+            "review_calls": "Weekly",
+        },
+        "sla": {
+            "uptime": "99%",
+            "response_to_critical": "24h",
+        },
+        "guarantee": "Full refund if no real vulnerability found in 30 days.",
+    },
+
     "standard": {
         "name": "Standard",
         "price_usd": 2000,
@@ -28,6 +76,19 @@ PLANS = {
             "Email support (48h response)",
         ],
         "integrations": ["Slack", "Email"],
+        "feature_flags": {
+            "slack": True,
+            "jira": False,
+            "github": False,
+            "gitlab": False,
+            "teams": False,
+            "pagerduty": False,
+            "compliance_mapping": False,
+            "cicd": False,
+            "custom_branding": False,
+            "dedicated_csm": False,
+            "on_premise": False,
+        },
         "support": {
             "channel": "Email",
             "response_time_hours": 48,
@@ -38,6 +99,7 @@ PLANS = {
             "response_to_critical": "24h",
         },
     },
+
     "premium": {
         "name": "Premium",
         "price_usd": 5000,
@@ -62,6 +124,19 @@ PLANS = {
             "CI/CD integration (GitHub, GitLab)",
         ],
         "integrations": ["Slack", "Jira", "GitHub", "GitLab", "Email"],
+        "feature_flags": {
+            "slack": True,
+            "jira": True,
+            "github": True,
+            "gitlab": True,
+            "teams": False,
+            "pagerduty": False,
+            "compliance_mapping": True,
+            "cicd": True,
+            "custom_branding": False,
+            "dedicated_csm": False,
+            "on_premise": False,
+        },
         "support": {
             "channel": "Email + Slack",
             "response_time_hours": 12,
@@ -72,6 +147,7 @@ PLANS = {
             "response_to_critical": "4h",
         },
     },
+
     "enterprise": {
         "name": "Enterprise",
         "price_usd": 10000,
@@ -101,6 +177,19 @@ PLANS = {
             "Quarterly business reviews (QBRs)",
         ],
         "integrations": ["Slack", "Jira", "Teams", "GitHub", "GitLab", "PagerDuty", "ServiceNow", "Custom API"],
+        "feature_flags": {
+            "slack": True,
+            "jira": True,
+            "github": True,
+            "gitlab": True,
+            "teams": True,
+            "pagerduty": True,
+            "compliance_mapping": True,
+            "cicd": True,
+            "custom_branding": True,
+            "dedicated_csm": True,
+            "on_premise": True,
+        },
         "support": {
             "channel": "Email + Slack + Phone",
             "response_time_hours": 1,

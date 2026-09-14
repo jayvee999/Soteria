@@ -68,7 +68,7 @@ def start():
 @main.command()
 @click.option("--domain", "-d", required=True)
 def recon(domain):
-    """Enumerate subdomains."""
+    """Enumerate subdomains and detect live hosts."""
     ReconEngine().run(domain)
 
 
@@ -88,15 +88,17 @@ def scan(target, hunt):
 @main.command()
 @click.option("--url", "-u", required=True)
 def fuzz(url):
-    """Custom fuzzing."""
+    """Custom fuzzing for injection vulnerabilities."""
     CustomFuzzer().run(url)
 
 
 @main.command()
 @click.option("--program", "-P", required=True)
-def report(program):
-    """Generate report."""
-    ReportGenerator().run(program)
+@click.option("--format", "-f", default="executive", help="executive or markdown")
+def report(program, format):
+    """Generate report from verified findings."""
+    gen = ReportGenerator()
+    gen.run(program, format)
 
 
 @main.command()
@@ -174,6 +176,42 @@ def check(domain, token, org):
         click.echo(f"[-] NOT VERIFIED: {result.get('error', 'unknown')}")
 
 
+@main.command()
+@click.option("--type", "-t", "vuln_type", required=True)
+def controls(vuln_type):
+    """Show compliance controls for a vulnerability type."""
+    from .modules.compliance.frameworks import get_controls, FRAMEWORK_NAMES
+    result = get_controls(vuln_type)
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo(f"  COMPLIANCE MAPPING — {result['description']}")
+    click.echo("=" * 60)
+    click.echo(f"  Type: {result['type']}")
+    click.echo()
+    if not result["frameworks"]:
+        click.echo("  No framework mappings found.")
+    for fw, ctrl_list in result["frameworks"].items():
+        name = FRAMEWORK_NAMES.get(fw, fw)
+        click.echo(f"  {name}:")
+        for c in ctrl_list:
+            click.echo(f"    • {c}")
+        click.echo()
+    click.echo("=" * 60)
+
+
+@main.command()
+def frameworks():
+    """List supported compliance frameworks."""
+    from .modules.compliance.frameworks import list_frameworks
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("  SUPPORTED COMPLIANCE FRAMEWORKS")
+    click.echo("=" * 60)
+    for fw in list_frameworks():
+        click.echo(f"  [{fw['id']}]  {fw['name']}")
+    click.echo("=" * 60)
+
+
 # ── HUNT COMMANDS ──
 
 @main.group()
@@ -191,11 +229,14 @@ def hunt():
 def hunt_create(org, name, domains, authorized_by, valid_days):
     """Create a new hunt ID."""
     from datetime import datetime, timedelta, timezone
+    import sqlite3
     hunt_id = HuntManager.generate_id(org, name)
     valid_until = (datetime.now(timezone.utc) + timedelta(days=valid_days)).isoformat()
     domain_list = [d.strip() for d in domains.split(",") if d.strip()]
 
-    manager = HuntManager(db=__import__("soteria.database", fromlist=["_connect"])._connect())
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    manager = HuntManager(db=conn)
     ok = manager.create_hunt(
         hunt_id=hunt_id,
         org_id=org,
@@ -204,6 +245,7 @@ def hunt_create(org, name, domains, authorized_by, valid_days):
         authorized_by=authorized_by,
         valid_until=valid_until,
     )
+    conn.close()
     if ok:
         click.echo("")
         click.echo("=" * 60)
@@ -226,7 +268,6 @@ def hunt_create(org, name, domains, authorized_by, valid_days):
 def hunt_list():
     """List all hunts."""
     import sqlite3
-    from pathlib import Path
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM hunts ORDER BY created_at DESC").fetchall()
@@ -245,11 +286,18 @@ def hunt_list():
 @click.argument("hunt_id")
 def hunt_revoke(hunt_id):
     """Revoke a hunt ID."""
-    manager = HuntManager(db=__import__("soteria.database", fromlist=["_connect"])._connect())
+    import sqlite3
+    conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
+    conn.row_factory = sqlite3.Row
+    manager = HuntManager(db=conn)
     if manager.revoke(hunt_id):
         click.echo(f"[+] Revoked: {hunt_id}")
     else:
         click.echo(f"[!] Failed to revoke: {hunt_id}")
+    conn.close()
+
+
+# ── CUSTOMER COMMANDS ──
 
 @main.group()
 def customer():
@@ -261,12 +309,11 @@ def customer():
 @click.option("--name", "-n", required=True, help="Customer name")
 @click.option("--email", "-e", default="", help="Contact email")
 @click.option("--contact", "-c", default="", help="Contact name")
-@click.option("--plan", "-P", default="standard", help="Plan: pilot/starter/standard/premium/enterprise")
+@click.option("--plan", "-P", default="standard", help="Plan: pilot/standard/premium/enterprise")
 @click.option("--notes", default="", help="Notes")
 def customer_create(name, email, contact, plan, notes):
     """Create a new customer."""
     import sqlite3
-    from pathlib import Path
     from .modules.customers.manager import CustomerManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -292,7 +339,6 @@ def customer_create(name, email, contact, plan, notes):
 def customer_list(status):
     """List all customers."""
     import sqlite3
-    from pathlib import Path
     from .modules.customers.manager import CustomerManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -314,7 +360,6 @@ def customer_list(status):
 def customer_show(customer_id):
     """Show customer details and stats."""
     import sqlite3
-    from pathlib import Path
     from .modules.customers.manager import CustomerManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -336,7 +381,7 @@ def customer_show(customer_id):
     click.echo(f"  Email:   {c['contact_email'] or '(none)'}")
     click.echo(f"  Created: {c['created_at']}")
     click.echo()
-    click.echo(f"  Hunts:   {stats.get('hunts', 0)}")
+    click.echo(f"  Hunts:    {stats.get('hunts', 0)}")
     click.echo(f"  Findings: {stats.get('total_findings', 0)}")
     for sev, cnt in stats.get('findings', {}).items():
         click.echo(f"    {sev}: {cnt}")
@@ -352,7 +397,6 @@ def customer_show(customer_id):
 def customer_update(customer_id, plan, status, email):
     """Update customer fields."""
     import sqlite3
-    from pathlib import Path
     from .modules.customers.manager import CustomerManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -360,6 +404,9 @@ def customer_update(customer_id, plan, status, email):
     ok, msg = mgr.update(customer_id, plan=plan, status=status, contact_email=email)
     click.echo(f"[{'+' if ok else '!'}] {msg}")
     conn.close()
+
+
+# ── BILLING COMMANDS ──
 
 @main.group()
 def billing():
@@ -376,24 +423,27 @@ def billing_plans():
     click.echo("  SOTERIA PRICING PLANS")
     click.echo("=" * 75)
     for p in list_plans():
+        interval = " one-time" if p["interval"] == "one_time" else "/month"
         click.echo("")
-        click.echo(f"  [{p['id'].upper()}] — {p['name']} — ${p['price_usd']}/month")
+        click.echo(f"  [{p['id'].upper()}] — {p['name']} — ${p['price_usd']}{interval}")
         click.echo(f"    {p['description']}")
         click.echo(f"    Target: {p.get('target', 'N/A')}")
         click.echo("")
-        click.echo(f"    LIMITS:")
+        click.echo("    LIMITS:")
         limits = p.get("limits", {})
         for key, val in limits.items():
             display = "Unlimited" if val == -1 else val
             click.echo(f"      • {key.replace('_', ' ').title()}: {display}")
         click.echo("")
-        click.echo(f"    FEATURES:")
+        click.echo("    FEATURES:")
         for f in p["features"]:
             click.echo(f"      ✓ {f}")
         click.echo("")
         click.echo(f"    INTEGRATIONS: {', '.join(p.get('integrations', []))}")
         click.echo(f"    SUPPORT:      {p['support']['channel']} — {p['support']['response_time_hours']}h response")
         click.echo(f"    SLA:          {p['sla']['uptime']} uptime, {p['sla']['response_to_critical']} critical response")
+        if p.get("guarantee"):
+            click.echo(f"    GUARANTEE:    {p['guarantee']}")
         click.echo("")
         click.echo("  " + "-" * 71)
     click.echo("")
@@ -401,12 +451,11 @@ def billing_plans():
 
 @billing.command("invoice-create")
 @click.option("--customer", "-c", required=True, help="Customer ID")
-@click.option("--plan", "-P", required=True, help="Plan: standard/premium/enterprise")
+@click.option("--plan", "-P", required=True, help="Plan: pilot/standard/premium/enterprise")
 @click.option("--description", "-d", default="", help="Invoice description")
 def billing_invoice_create(customer, plan, description):
     """Create an invoice for a customer."""
     import sqlite3
-    from pathlib import Path
     from .modules.billing.manager import BillingManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -435,7 +484,6 @@ def billing_invoice_create(customer, plan, description):
 def billing_invoice_list(customer, status):
     """List invoices."""
     import sqlite3
-    from pathlib import Path
     from .modules.billing.manager import BillingManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -458,7 +506,6 @@ def billing_invoice_list(customer, status):
 def billing_mark_paid(invoice, ref):
     """Mark an invoice as paid."""
     import sqlite3
-    from pathlib import Path
     from .modules.billing.manager import BillingManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -472,7 +519,6 @@ def billing_mark_paid(invoice, ref):
 def billing_revenue():
     """Show revenue summary."""
     import sqlite3
-    from pathlib import Path
     from .modules.billing.manager import BillingManager
     conn = sqlite3.connect(Path.home() / ".soteria" / "soteria.db")
     conn.row_factory = sqlite3.Row
@@ -487,40 +533,6 @@ def billing_revenue():
     click.echo("=" * 60)
     conn.close()
 
-@main.command()
-@click.option("--type", "-t", "vuln_type", required=True, help="Vulnerability type (sqli, xss, idor, etc.)")
-def controls(vuln_type):
-    """Show compliance controls for a vulnerability type."""
-    from .modules.compliance.frameworks import get_controls, FRAMEWORK_NAMES
-    result = get_controls(vuln_type)
-    click.echo("")
-    click.echo("=" * 60)
-    click.echo(f"  COMPLIANCE MAPPING — {result['description']}")
-    click.echo("=" * 60)
-    click.echo(f"  Type: {result['type']}")
-    click.echo()
-    if not result["frameworks"]:
-        click.echo("  No framework mappings found.")
-    for fw, controls in result["frameworks"].items():
-        name = FRAMEWORK_NAMES.get(fw, fw)
-        click.echo(f"  {name}:")
-        for c in controls:
-            click.echo(f"    • {c}")
-        click.echo()
-    click.echo("=" * 60)
-
-
-@main.command()
-def frameworks():
-    """List supported compliance frameworks."""
-    from .modules.compliance.frameworks import list_frameworks
-    click.echo("")
-    click.echo("=" * 60)
-    click.echo("  SUPPORTED COMPLIANCE FRAMEWORKS")
-    click.echo("=" * 60)
-    for fw in list_frameworks():
-        click.echo(f"  [{fw['id']}]  {fw['name']}")
-    click.echo("=" * 60)
 
 if __name__ == "__main__":
     main()
