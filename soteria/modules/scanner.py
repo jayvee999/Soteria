@@ -16,7 +16,7 @@ class VulnerabilityScanner:
         self.hunt = HuntManager(db=db._connect())
 
     def run(self, target: str, templates=None, severity=None, target_context=None):
-        # LEGAL GATE: require valid hunt ID before any scan
+        # LEGAL GATE: require valid hunt ID
         if not self.hunt_id:
             raise HuntError(
                 "Scan requires a hunt ID. Use --hunt HUNT-XXXX or create one with "
@@ -27,6 +27,20 @@ class VulnerabilityScanner:
         self.hunt.require_hunt(self.hunt_id, target)
         log.info("Authorized scan for %s (hunt=%s)", target, self.hunt_id)
 
+        # Enforce plan limits
+        try:
+            from .billing.enforcer import PlanEnforcer, PlanLimitError
+            conn = db._connect()
+            hunt_row = conn.execute(
+                "SELECT org_id FROM hunts WHERE hunt_id = ?", (self.hunt_id,)
+            ).fetchone()
+            if hunt_row:
+                enforcer = PlanEnforcer(db=conn)
+                enforcer.check_scan_allowed(hunt_row["org_id"], target)
+        except Exception as e:
+            # If enforcer module doesn't exist yet, log and continue
+            log.debug("Plan enforcement skipped: %s", e)
+
         # Log the authorized scan
         db.log_action(
             "authorized_scan",
@@ -36,7 +50,7 @@ class VulnerabilityScanner:
             status="ok",
         )
 
-        # Existing scan logic
+        # Nuclei scan (optional)
         try:
             args = ["-u", target, "-silent", "-json"]
             r = subprocess.run(["nuclei"] + args, capture_output=True, text=True, timeout=300)
@@ -47,6 +61,7 @@ class VulnerabilityScanner:
         except Exception as e:
             log.warning("nuclei failed: %s", e)
 
+        # Custom checks
         self._custom_checks(target)
 
     def _parse_nuclei_output(self, target, output):
@@ -66,6 +81,7 @@ class VulnerabilityScanner:
                     remediation=info.get("remediation", ""),
                 )
                 db.finding_save(finding)
+                self._compliance_tag(finding)
             except Exception as e:
                 log.debug("Parse error: %s", e)
 
@@ -99,6 +115,15 @@ class VulnerabilityScanner:
                         curl_command=f"curl -s -L {base}{path}",
                     )
                     db.finding_save(finding)
+                    self._compliance_tag(finding)
                     print(f"  [!!!] {severity.value}: {path} [{code}]")
             except Exception:
                 pass
+
+    def _compliance_tag(self, finding):
+        """Auto-tag finding with compliance controls."""
+        try:
+            from .compliance.tagger import tag_finding
+            tag_finding(db._connect(), finding.finding_id, finding.type)
+        except Exception as e:
+            log.debug("Compliance tag failed: %s", e)

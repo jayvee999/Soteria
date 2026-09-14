@@ -110,6 +110,20 @@ def init(db_path: Path):
     except Exception as e:
         log.warning("Customer schema install failed: %s", e)
 
+    # Install billing schema
+    try:
+        from .modules.billing.setup import BILLING_SCHEMA
+        con.executescript(BILLING_SCHEMA)
+    except Exception as e:
+        log.warning("Billing schema install failed: %s", e)
+
+    # Install compliance schema
+    try:
+        from .modules.compliance.setup import COMPLIANCE_SCHEMA
+        con.executescript(COMPLIANCE_SCHEMA)
+    except Exception as e:
+        log.warning("Compliance schema install failed: %s", e)
+
     con.close()
 
 
@@ -159,7 +173,7 @@ def log_action(action, **kw):
         pass
 
 
-def user_create(user: User):
+def user_create(user):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO users (username,password_hash,role,created_at,password_changed_at,active) VALUES (?,?,?,?,?,?)",
@@ -170,7 +184,7 @@ def user_create(user: User):
     return user
 
 
-def user_get(username: str):
+def user_get(username):
     con = _connect()
     row = con.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     con.close()
@@ -197,7 +211,7 @@ def user_list():
     ]
 
 
-def login_attempt_record(attempt: LoginAttempt):
+def login_attempt_record(attempt):
     with _tx() as con:
         con.execute(
             "INSERT INTO login_attempts (username,success,timestamp) VALUES (?,?,?)",
@@ -215,7 +229,7 @@ def login_attempt_recent_failures(username, since):
     return n
 
 
-def session_create(session: Session):
+def session_create(session):
     with _tx() as con:
         con.execute(
             "INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)",
@@ -241,7 +255,7 @@ def session_delete(token):
         con.execute("DELETE FROM sessions WHERE token=?", (token,))
 
 
-def finding_save(finding: Finding):
+def finding_save(finding):
     with _tx() as con:
         con.execute(
             "INSERT OR REPLACE INTO findings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -288,7 +302,7 @@ def finding_update_verification(fid, verified, fp):
         )
 
 
-def recon_save(result: ReconResult):
+def recon_save(result):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO recon_results (target_domain,url,status_code,technologies,title,headers,content_length,discovered_at,behind_cdn) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -300,7 +314,7 @@ def recon_save(result: ReconResult):
     return result
 
 
-def training_save(entry: TrainingEntry):
+def training_save(entry):
     with _tx() as con:
         cur = con.execute(
             "INSERT INTO training_data (instruction,input,output,category,source,created_at) VALUES (?,?,?,?,?,?)",
